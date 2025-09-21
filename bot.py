@@ -57,6 +57,22 @@ async def start(client, message):
         "I will give you a fast download link!"
     )
 
+from flask import Flask
+import threading
+
+app_web = Flask("health")
+
+@app_web.route("/")
+def home():
+    return "Bot is running ✅"
+
+def run_web():
+    app_web.run(host="0.0.0.0", port=8000)
+
+# Run Flask in a separate thread
+import threading
+threading.Thread(target=run_web).start()
+
 if __name__ == "__main__":
     print("Document File-to-Link Bot is running...")
     app.run()
