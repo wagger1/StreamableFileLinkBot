@@ -2,76 +2,61 @@ import os
 from pyrogram import Client, filters
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 
-# Load config from environment variables
+# --- CONFIG ---
 API_ID = int(os.environ.get("API_ID"))
 API_HASH = os.environ.get("API_HASH")
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
-FILE_CHANNEL = int(os.environ.get("FILE_CHANNEL"))  # Channel ID (-100xxxxxxxxx)
+FILE_CHANNEL = os.environ.get("FILE_CHANNEL")  # -100xxxx or @username
+# ----------------
 
-app = Client(
-    "streamable_file_link_bot",
-    api_id=API_ID,
-    api_hash=API_HASH,
-    bot_token=BOT_TOKEN
-)
+app = Client("file_to_link_bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 
-@app.on_message(filters.private & (filters.document | filters.video | filters.audio))
-async def handle_file(client, message):
-    """
-    Upload files to FILE_CHANNEL and generate streamable links for videos/audio.
-    """
+def generate_link(channel, message_id):
+    """Generate t.me link for channel message"""
+    if str(channel).startswith("-100"):  # private channel
+        return f"https://t.me/c/{str(channel)[4:]}/{message_id}"
+    else:  # public channel username
+        return f"https://t.me/{channel}/{message_id}"
+
+async def upload_document(message):
+    """Upload document to FILE_CHANNEL"""
     try:
-        if message.video:
-            media = await client.send_video(
-                chat_id=FILE_CHANNEL,
-                video=message.video.file_id,
-                caption=message.caption or ""
-            )
-        elif message.audio:
-            media = await client.send_audio(
-                chat_id=FILE_CHANNEL,
-                audio=message.audio.file_id,
-                caption=message.caption or ""
-            )
-        else:
-            # Documents and other files
-            media = await client.send_document(
-                chat_id=FILE_CHANNEL,
-                document=message.document.file_id,
-                caption=message.caption or ""
-            )
-
-        # Generate Telegram link
-        file_link = f"https://t.me/c/{str(FILE_CHANNEL)[4:]}/{media.message_id}"
-
-        await message.reply_text(
-            f"✅ Your file link:\n\n{file_link}",
-            reply_markup=InlineKeyboardMarkup(
-                [[InlineKeyboardButton("📥 Open File", url=file_link)]]
-            )
-        )
+        return await app.send_document(chat_id=FILE_CHANNEL, document=message.document.file_id)
     except Exception as e:
-        await message.reply_text(f"❌ Failed to process file.\nError: {e}")
+        return e
 
+def build_buttons(message):
+    """Create inline button for download"""
+    link = generate_link(FILE_CHANNEL, message.message_id)
+    return InlineKeyboardMarkup(
+        [[InlineKeyboardButton("📥 Download", url=link)]]
+    )
+
+# --- Handle PM forwards ---
+@app.on_message(filters.private & filters.document)
+async def handle_pm(client, message):
+    uploaded = await upload_document(message)
+    if isinstance(uploaded, Exception):
+        await message.reply_text(f"❌ Failed to process file.\nError: {uploaded}")
+        return
+
+    caption = "✅ Your download link:"
+    await message.reply_text(caption, reply_markup=build_buttons(uploaded))
+
+# --- Handle documents sent in channel ---
+@app.on_message(filters.chat(FILE_CHANNEL) & filters.document)
+async def handle_channel_post(client, message):
+    caption = "📥 Fast download link:"
+    await message.reply_text(caption, reply_markup=build_buttons(message))
+
+# --- Start command ---
 @app.on_message(filters.private & filters.command("start"))
 async def start(client, message):
     await message.reply_text(
-        "👋 Hi! Send me any video, audio, or document.\n"
-        "Videos and audio will be streamable.\n"
-        "Documents will be downloadable."
-    )
-
-@app.on_message(filters.private & filters.command("help"))
-async def help_command(client, message):
-    await message.reply_text(
-        "📌 **How to use:**\n"
-        "1. Send any video, audio, or document.\n"
-        "2. I upload it to my channel.\n"
-        "3. You get a Telegram link.\n\n"
-        "✅ Videos/audio = Streamable\n"
-        "✅ Documents = Downloadable"
+        "👋 Send me any document file (PDF, ZIP, etc.)\n"
+        "I will give you a fast download link!"
     )
 
 if __name__ == "__main__":
-    print("Streamable File-to-Link Bot is running...")
+    print("Document File-to-Link Bot is running...")
     app.run()
